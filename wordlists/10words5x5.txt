@@ -1,0 +1,10 @@
+agate;50
+carom;50
+emery;50
+enemy;50
+irate;50
+later;50
+pagan;50
+scale;50
+spite;50
+totem;50

@@ -1,0 +1,22 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "debug_queens",
+      "type": "cppdbg",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/queens",
+      "environment": [{"name": "CILK_NWORKERS", "value": "2"}],
+      "program": "${workspaceFolder}/queens/queens",
+      "args": [
+      ],      
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "preLaunchTask": "build_queens_debug",
+      "externalConsole": false,
+    },
+  ]
+}

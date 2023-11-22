@@ -1,0 +1,16 @@
+{
+  // See https://go.microsoft.com/fwlink/?LinkId=733558
+  // for the documentation about the tasks.json format
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build_queens_debug",
+      "type": "shell",
+      "command": "module load opencilk && make -B DEBUG=1",
+      "options": {
+          "cwd": "${workspaceFolder}/queens"
+      },
+      "problemMatcher": "$gcc"
+  },
+  ]
+}
