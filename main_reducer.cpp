@@ -10,6 +10,7 @@
 #include <vector>
 #include <memory>
 #include <cilk/cilk.h>
+#include <cilk/cilk_api.h>
 #include <chrono>
 #include <atomic>
 
@@ -29,6 +30,11 @@
 using Word = const char *; // using Word = std::string;
 
 using Wordlist = std::vector<Word>;
+
+typedef struct PartialSolution {
+  bool full;
+  Wordlist solution;
+} PartialSolution;
 
 using SearchSpace = std::vector<std::shared_ptr<const Wordlist>>;
 
@@ -333,10 +339,11 @@ bool PossibleFitComputer::operator()(const Word &word) const {
 class Solver {
 
 public:
-  Solver(const Grid &initialGrid, const Entries &, const SolveOrder &);
+  Solver(const Grid &initialGrid, const Entries &, const SolveOrder &, const Wordlist &, size_t);
+  ~Solver();
 
-  const Wordlist &getSolution() const { return finalSolution; }
-  bool solve(const SearchSpace &, size_t i, Wordlist &solution);
+  const Wordlist &getSolution() const { return (&(*partialSolution))->solution; }
+  bool solve(const SearchSpace &, size_t i);
   static std::atomic_bool done;
 
 private:
@@ -353,35 +360,67 @@ private:
   const int printInterval;
   clock_t printTime;
   int numCalls;
+  static void PartialSolution_identity(void *view) {
+    
+    PartialSolution *pSolution = static_cast<PartialSolution *>(view);
+    pSolution->full = false;
+    void *sol = (void*)(&pSolution->solution);
+    new (sol) Wordlist;
+  }
+
+  static void PartialSolution_reduce(void *left, void *right) {
+    PartialSolution *l_solution = static_cast<PartialSolution *>(left);
+    PartialSolution *r_solution = static_cast<PartialSolution *>(right);
+    // Populate l_solution with the correct solution
+    // ... YOU WILL WRITE THIS CODE TO DO THE POPULATE
+    // ... YOU HAVE TO BE ABLE TO FIGURE OUT IF A SOLUTION IS COMPLETE
+    // Destroy the right solution, without freeing its memory.  (The runtime
+    // will free the memory of the vector.)
+    
+    if (r_solution->full) {
+      l_solution->solution = r_solution->solution;
+      l_solution->full = r_solution->full;
+    }
+    r_solution->solution.~Wordlist();
+  }
+
+  PartialSolution cilk_reducer(PartialSolution_identity, PartialSolution_reduce) *partialSolution;
 
 };
 
 std::atomic_bool Solver::done(false);
 
 Solver::Solver(const Grid &initialGrid_, const Entries &entries_,
-               const SolveOrder &solveOrder_)
+               const SolveOrder &solveOrder_, const Wordlist &solution_, size_t seedSize)
     : initialGrid(initialGrid_), entries(entries_), solveOrder(solveOrder_),
       finalSolution(entries_.size()), startTime(clock()),
       printInterval(5 * CLOCKS_PER_SEC), numCalls(0) {
   //assert(solveOrder.size() + 1 == entries.size());
   printTime = startTime + printInterval;
+  partialSolution = new PartialSolution cilk_reducer(PartialSolution_identity, PartialSolution_reduce)({false, solution_});
+  //__cilkrts_reducer_register(partialSolution, sizeof(*partialSolution), &PartialSolution_identity, &PartialSolution_reduce);
 }
 
-bool Solver::solve(const SearchSpace &searchSpace, size_t i, Wordlist &solution) {
+Solver::~Solver() {
+  //__cilkrts_reducer_unregister(partialSolution);
+}
+
+bool Solver::solve(const SearchSpace &searchSpace, size_t i) {
   // invariant upon calling Solver::solve: the current state is valid
   if (i == solveOrder.size()) {
     bool val = false;
     if (Solver::done.compare_exchange_strong(val, true)) {
-      finalSolution.assign(solution.begin(), solution.end());
+      std::cout << "found" << std::endl;
+      PartialSolution *solution = &(*partialSolution);
+      solution->full = true;
     }
     return true;
   }
-
 #if 0
   ++numCalls;
   if (clock() > printTime) {
     printTime += printInterval;
-    reportProgress(solution);
+    reportProgress(solution->solution);
   }
 #endif
 
@@ -397,10 +436,11 @@ bool Solver::solve(const SearchSpace &searchSpace, size_t i, Wordlist &solution)
     if (Solver::done.load()) {
       continue;
     }
+    PartialSolution *solution = &(*partialSolution);
     Word const &word = (*(searchSpace[entryNo]))[w];
 
     // don't allow duplicate entries in the solution
-    if (std::find(solution.begin(), solution.end(), word) != solution.end())
+    if (std::find(solution->solution.begin(), solution->solution.end(), word) != solution->solution.end())
       continue;
 
     if (!possibleFit(word))
@@ -416,17 +456,16 @@ bool Solver::solve(const SearchSpace &searchSpace, size_t i, Wordlist &solution)
     if (!searchSpaceCopy)
       continue;
 
-    solution[entryNo] = word;
-    Wordlist solutioncpy = solution;
+    solution->solution[entryNo] = word;
     //Wordlist &solutionRef = solution;
 
-    if (solve(*searchSpaceCopy, i + 1, solutioncpy)) {
+    if (solve(*searchSpaceCopy, i + 1)) {
 
     }
     else {
       // word didn't work, so clear it out so we don't confuse anybody into
       // thinking it's currently taken by entryNo
-      solution[entryNo] = "";
+      solution->solution[entryNo] = "";
     }
   }
   return Solver::done.load();
@@ -556,10 +595,10 @@ Grid fillGrid(const Grid &initialGrid, MasterWordlist &masterWordlist, const std
   }
   */
 
-  Solver solver(initialGrid, entries, order);
+  Solver solver(initialGrid, entries, order, solutionWithSeed, seeds.size());
 
   Grid grid(initialGrid);
-  if (solver.solve(searchSpace, 0, solutionWithSeed)) {
+  if (solver.solve(searchSpace, 0)) {
     const Wordlist &solution(solver.getSolution());
     /*
     for (int i = 1; i < solution.size(); i++) {
